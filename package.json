@@ -1,0 +1,17 @@
+{
+  "name": "botcuathaytung",
+  "version": "1.0.0",
+  "description": "Chatbot AI giao tiếp giọng nói dùng Gemini API với nhân vật Robot biểu cảm dành cho học sinh",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "gemini",
+    "chatbot",
+    "voice",
+    "education",
+    "robotics"
+  ],
+  "license": "MIT"
+}
