@@ -1,0 +1,54 @@
+[
+  {
+    "id": "u_1795759284590",
+    "role": "user",
+    "text": "Bạn có biết cuốn sách ngày xưa có một con bò không",
+    "timestamp": 1795759284590
+  },
+  {
+    "id": "m_1795759284593",
+    "role": "model",
+    "text": "Chào **Dũng**! Cuốn sách **\"Ngày xưa có một con bò\"** của tác giả Camilo Cruz thì RoboAI biết rất rõ luôn nhé! \n\nHình ảnh \"con bò\" trong truyện chính là phép ẩn dụ cực kỳ thú vị cho những lời **ngụy biện, viện cớ và thói quen trì hoãn** mà chúng ta hay bám víu vào để sống tạm bợ qua ngày. Cuốn sách gửi gắm một thông điệp rất mạnh mẽ: Muốn chạm tới tiềm năng thực sự và bứt phá, chúng ta buộc phải dũng cảm **\"tiêu diệt con bò\"** an phận đó đi.\n\nDạo này Dũng có đang vô tình \"nuôi\" chú bò lười biếng nào trong góc học tập không đấy, chia sẻ cùng RoboAI để cùng nhau \"xử lý\" nhé!",
+    "timestamp": 1795759284593,
+    "latencyMs": 3739
+  },
+  {
+    "id": "u_1795759321465",
+    "role": "user",
+    "text": "cho tuổi Quý",
+    "timestamp": 1795759321465
+  },
+  {
+    "id": "m_1795759321474",
+    "role": "model",
+    "text": "Chào **Dũng**! Tuổi \"Quý\" trong Can Chi là đại diện cho mệnh **Thủy**, mang tính chất của dòng nước mềm mại, linh hoạt nhưng bên trong lại cực kỳ bền bỉ và sâu sắc.\n\nỞ lứa tuổi học trò chúng mình, quen thuộc nhất là:\n- **Quý Mùi (2003)**: Thuộc mệnh Dương Liễu Mộc, khéo léo và kiên nhẫn.\n- **Quý Tỵ (2013)**: Thuộc mệnh Trường Lưu Thủy, rất thông minh, nhanh nhạy và giàu tính tò mò.\n\nDũng đang muốn hỏi về tuổi **Quý Mùi**, **Quý Tỵ**, hay tuổi Quý kết hợp với con giáp nào khác để RoboAI chia sẻ chi tiết hơn cho bạn nhé?",
+    "timestamp": 1795759321474,
+    "latencyMs": 3836
+  },
+  {
+    "id": "u_1795759364077",
+    "role": "user",
+    "text": "mày",
+    "timestamp": 1795759364077
+  },
+  {
+    "id": "m_1795759364087",
+    "role": "model",
+    "text": "Haha, **Dũng** gọi RoboAI đấy à! RoboAI lúc nào cũng túc trực sẵn sàng đây.\n\nCó câu đố, bài tập hóc búa hay điều gì thú vị muốn chia sẻ cùng RoboAI không nào, Dũng kể nghe xem nhé!",
+    "timestamp": 1795759364087,
+    "latencyMs": 3044
+  },
+  {
+    "id": "u_1795759386612",
+    "role": "user",
+    "text": "Dũng gọi",
+    "timestamp": 1795759386612
+  },
+  {
+    "id": "m_1795759386619",
+    "role": "model",
+    "text": "RoboAI có mặt ngay đây, **Dũng** ơi!\n\nRadar học tập đã bật 100% công suất rồi. Hôm nay chúng mình cùng giải quyết bài toán nào hay bàn luận chủ đề gì thú vị đây Dũng?",
+    "timestamp": 1795759386619,
+    "latencyMs": 2768
+  }
+]

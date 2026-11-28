@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RoboAI - Trợ Lý Giọng Nói Thông Minh Cho Học Sinh</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <!-- Thanh điều khiển phía trên -->
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-badge" aria-hidden="true">🤖</div>
+          <div>
+            <h1 id="appTitle">RoboAI Trợ Giảng</h1>
+            <p class="brand-sub">Giao tiếp giọng nói tốc độ cao • Gemini AI</p>
+          </div>
+        </div>
+
+        <div class="topbar-controls">
+          <label class="select-pill" title="Chủ đề môn học">
+            <span>📚</span>
+            <select id="personaSelect" aria-label="Chọn môn học">
+              <option value="general">Tổng hợp</option>
+              <option value="science">Khoa học vui</option>
+              <option value="math">Toán & Logic</option>
+              <option value="history">Lịch sử & Văn</option>
+              <option value="english">Luyện Tiếng Anh</option>
+            </select>
+          </label>
+
+          <label class="select-pill" title="Cấp học">
+            <span>🎓</span>
+            <select id="gradeSelect" aria-label="Chọn cấp học">
+              <option value="elementary">Tiểu học</option>
+              <option value="middle" selected>THCS</option>
+              <option value="high">THPT</option>
+            </select>
+          </label>
+
+          <label class="select-pill" title="Ngôn ngữ & giọng đọc">
+            <span>🌐</span>
+            <select id="topbarLangSelect" aria-label="Chọn ngôn ngữ và giọng">
+              <option value="vi-VN">Tiếng Việt</option>
+              <option value="en-US">English (US)</option>
+              <option value="en-IN">English (India)</option>
+            </select>
+          </label>
+
+          <button id="faceScanBtn" class="icon-btn face-btn" type="button" title="Quét khuôn mặt để nhận diện & chuyển sang AI cá nhân">
+            <span>📷</span>
+            <span class="btn-label">Quét mặt</span>
+          </button>
+
+          <button id="faceAddBtn" class="icon-btn face-btn" type="button" title="Thêm khuôn mặt và tên mới">
+            <span>➕</span>
+            <span class="btn-label">Thêm khuôn mặt</span>
+          </button>
+
+          <button id="ttsToggleBtn" class="icon-btn active" type="button" title="Bật/tắt giọng đọc AI">
+            <span id="ttsIcon">🔊</span>
+            <span class="btn-label">Loa: Bật</span>
+          </button>
+
+          <button id="handsFreeBtn" class="icon-btn" type="button" title="Tự động bật mic lại sau khi AI trả lời xong">
+            <span>🔄</span>
+            <span class="btn-label">Liên tục</span>
+          </button>
+
+          <button id="fullscreenBtn" class="icon-btn" type="button" title="Toàn màn hình trình chiếu">
+            <span>⛶</span>
+          </button>
+
+          <button id="settingsBtn" class="icon-btn" type="button" title="Cài đặt API Key & Giọng nói">
+            <span>⚙️</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Khu vực chính: Sân khấu Robot (trái) + Lịch sử hỏi đáp (phải) -->
+      <main class="workspace">
+        <!-- Cột trái: Sân khấu tương tác cho học sinh quan sát -->
+        <section class="stage-panel" aria-label="Khu vực tương tác Robot AI">
+          <div class="stage-backdrop">
+            <div class="stage-top-meta">
+              <div id="statusPill" class="status-pill state-idle">
+                <span class="status-dot"></span>
+                <span id="statusText">Sẵn sàng trò chuyện cùng các em!</span>
+              </div>
+
+              <div class="stage-right-meta">
+                <div id="activePersonBanner" class="person-banner hidden">
+                  <img id="activePersonAvatar" class="person-avatar" src="" alt="" />
+                  <span id="activePersonLabel">AI cá nhân</span>
+                  <button id="exitPersonBtn" class="person-exit-btn" type="button" title="Quay về chế độ chung">✕</button>
+                </div>
+
+                <div id="latencyBadge" class="latency-pill hidden" title="Thời gian phản hồi đầu tiên từ AI">
+                  ⚡ <span id="latencyValue">0</span> ms
+                </div>
+              </div>
+            </div>
+
+            <!-- Nhân vật Robot + Canvas sóng âm -->
+            <div class="robot-arena">
+              <canvas id="visualizerCanvas" width="460" height="460" aria-hidden="true"></canvas>
+
+              <div id="robotContainer" class="robot-wrapper state-idle">
+                <svg
+                  id="robotSvg"
+                  viewBox="0 0 320 320"
+                  xmlns="http://www.w3.org/2000/svg"
+                  role="img"
+                  aria-label="Nhân vật Robot AI"
+                >
+                  <defs>
+                    <linearGradient id="bodyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                      <stop offset="0%" stop-color="#ffffff" />
+                      <stop offset="100%" stop-color="#dbeafe" />
+                    </linearGradient>
+                    <linearGradient id="visorGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stop-color="#0f172a" />
+                      <stop offset="100%" stop-color="#1e293b" />
+                    </linearGradient>
+                    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                      <stop offset="0%" stop-color="#38bdf8" />
+                      <stop offset="100%" stop-color="#818cf8" />
+                    </linearGradient>
+                    <filter id="glowFilter" x="-40%" y="-40%" width="180%" height="180%">
+                      <feGaussianBlur stdDeviation="4" result="blur" />
+                      <feMerge>
+                        <feMergeNode in="blur" />
+                        <feMergeNode in="SourceGraphic" />
+                      </feMerge>
+                    </filter>
+                  </defs>
+
+                  <!-- Bóng dưới robot -->
+                  <ellipse class="robot-shadow" cx="160" cy="298" rx="70" ry="12" fill="rgba(15, 23, 42, 0.25)" />
+
+                  <!-- Thân & cổ -->
+                  <g class="robot-body-group">
+                    <rect x="142" y="218" width="36" height="18" rx="6" fill="#94a3b8" />
+                    <path
+                      d="M104 236 C104 224 114 218 128 218 L192 218 C206 218 216 224 216 236 L224 276 C226 286 218 292 206 292 L114 292 C102 292 94 286 96 276 Z"
+                      fill="url(#bodyGrad)"
+                      stroke="#93c5fd"
+                      stroke-width="3"
+                    />
+                    <!-- Màn hình ngực trái tim / năng lượng -->
+                    <rect x="132" y="240" width="56" height="32" rx="10" fill="#0f172a" stroke="#60a5fa" stroke-width="2" />
+                    <path
+                      id="chestWave"
+                      d="M140 256 L148 256 L153 246 L160 266 L167 248 L172 256 L180 256"
+                      fill="none"
+                      stroke="#38bdf8"
+                      stroke-width="2.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+
+                    <!-- Hai tay robot -->
+                    <g class="robot-arm-left">
+                      <rect x="64" y="232" width="28" height="44" rx="14" fill="url(#bodyGrad)" stroke="#93c5fd" stroke-width="3" />
+                      <circle cx="78" cy="264" r="6" fill="#38bdf8" />
+                    </g>
+                    <g class="robot-arm-right">
+                      <rect x="228" y="232" width="28" height="44" rx="14" fill="url(#bodyGrad)" stroke="#93c5fd" stroke-width="3" />
+                      <circle cx="242" cy="264" r="6" fill="#38bdf8" />
+                    </g>
+                  </g>
+
+                  <!-- Đầu Robot -->
+                  <g class="robot-head-group">
+                    <!-- Anten -->
+                    <line x1="160" y1="62" x2="160" y2="34" stroke="#94a3b8" stroke-width="5" stroke-linecap="round" />
+                    <circle id="antennaOrb" cx="160" cy="26" r="11" fill="#38bdf8" filter="url(#glowFilter)" />
+
+                    <!-- Tai nghe 2 bên -->
+                    <rect x="44" y="122" width="22" height="54" rx="11" fill="#3b82f6" stroke="#bfdbfe" stroke-width="2.5" />
+                    <rect x="254" y="122" width="22" height="54" rx="11" fill="#3b82f6" stroke="#bfdbfe" stroke-width="2.5" />
+                    <circle id="earGlowLeft" cx="55" cy="149" r="5" fill="#7dd3fc" />
+                    <circle id="earGlowRight" cx="265" cy="149" r="5" fill="#7dd3fc" />
+
+                    <!-- Vỏ đầu -->
+                    <rect
+                      x="64"
+                      y="62"
+                      width="192"
+                      height="158"
+                      rx="52"
+                      fill="url(#bodyGrad)"
+                      stroke="#93c5fd"
+                      stroke-width="3.5"
+                    />
+
+                    <!-- Mặt kính đen -->
+                    <rect
+                      x="84"
+                      y="86"
+                      width="152"
+                      height="112"
+                      rx="36"
+                      fill="url(#visorGrad)"
+                      stroke="#38bdf8"
+                      stroke-width="2.5"
+                    />
+
+                    <!-- Phản chiếu kính -->
+                    <path d="M104 98 Q132 92 158 96" stroke="rgba(255,255,255,0.18)" stroke-width="4" stroke-linecap="round" fill="none" />
+
+                    <!-- Má hồng -->
+                    <ellipse id="cheekLeft" cx="106" cy="158" rx="10" ry="6" fill="#fb7185" opacity="0.25" />
+                    <ellipse id="cheekRight" cx="214" cy="158" rx="10" ry="6" fill="#fb7185" opacity="0.25" />
+
+                    <!-- Mắt trái & phải -->
+                    <g id="eyesGroup">
+                      <g id="leftEye" transform="translate(124, 130)">
+                        <ellipse class="eye-bg" cx="0" cy="0" rx="17" ry="19" fill="#0ea5e9" opacity="0.2" />
+                        <ellipse class="eye-iris" cx="0" cy="0" rx="14" ry="16" fill="#38bdf8" filter="url(#glowFilter)" />
+                        <circle class="eye-pupil" cx="2" cy="-2" r="6" fill="#e0f2fe" />
+                        <circle cx="6" cy="-6" r="2.5" fill="#ffffff" />
+                        <rect class="eye-lid" x="-18" y="-22" width="36" height="0" rx="4" fill="#0f172a" />
+                      </g>
+
+                      <g id="rightEye" transform="translate(196, 130)">
+                        <ellipse class="eye-bg" cx="0" cy="0" rx="17" ry="19" fill="#0ea5e9" opacity="0.2" />
+                        <ellipse class="eye-iris" cx="0" cy="0" rx="14" ry="16" fill="#38bdf8" filter="url(#glowFilter)" />
+                        <circle class="eye-pupil" cx="2" cy="-2" r="6" fill="#e0f2fe" />
+                        <circle cx="6" cy="-6" r="2.5" fill="#ffffff" />
+                        <rect class="eye-lid" x="-18" y="-22" width="36" height="0" rx="4" fill="#0f172a" />
+                      </g>
+
+                      <!-- Mắt cười ^_^ khi vui -->
+                      <path
+                        id="happyEyes"
+                        d="M110 132 Q124 116 138 132 M182 132 Q196 116 210 132"
+                        fill="none"
+                        stroke="#34d399"
+                        stroke-width="6"
+                        stroke-linecap="round"
+                        opacity="0"
+                      />
+                    </g>
+
+                    <!-- Miệng biểu cảm -->
+                    <g id="mouthGroup" transform="translate(160, 168)">
+                      <path
+                        id="mouthPath"
+                        d="M-20 -2 Q0 12 20 -2"
+                        fill="none"
+                        stroke="#38bdf8"
+                        stroke-width="5"
+                        stroke-linecap="round"
+                        filter="url(#glowFilter)"
+                      />
+                      <!-- Thanh equalizer khi đang nói -->
+                      <g id="mouthBars" opacity="0">
+                        <rect class="mbar" x="-24" y="-8" width="6" height="16" rx="3" fill="#34d399" />
+                        <rect class="mbar" x="-13" y="-12" width="6" height="24" rx="3" fill="#34d399" />
+                        <rect class="mbar" x="-3" y="-15" width="6" height="30" rx="3" fill="#6ee7b7" />
+                        <rect class="mbar" x="7" y="-12" width="6" height="24" rx="3" fill="#34d399" />
+                        <rect class="mbar" x="18" y="-8" width="6" height="16" rx="3" fill="#34d399" />
+                      </g>
+                    </g>
+                  </g>
+                </svg>
+
+                <!-- Bong bóng suy nghĩ -->
+                <div id="thinkingBubbles" class="thinking-bubbles hidden" aria-hidden="true">
+                  <span></span><span></span><span>⚡</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Phụ đề trực tiếp cho cả lớp dễ quan sát -->
+            <div class="live-caption-card">
+              <div class="caption-tag" id="captionTag">Gợi ý</div>
+              <p id="liveCaption" class="live-caption-text">
+                Nhấn nút Micro bên dưới (hoặc phím <strong>Space</strong>) rồi đặt câu hỏi cho tớ nhé!
+              </p>
+            </div>
+          </div>
+
+          <!-- Khu vực nút Mic & nhập câu hỏi -->
+          <div class="stage-controls">
+            <div class="mic-row">
+              <button id="micBtn" class="mic-btn" type="button" aria-label="Bắt đầu hoặc dừng thu âm">
+                <span class="mic-pulse"></span>
+                <span class="mic-icon">🎙️</span>
+                <span id="micBtnLabel">Nhấn để Hỏi</span>
+              </button>
+
+              <button id="stopSpeakBtn" class="stop-btn hidden" type="button" title="Dừng AI đang nói">
+                ⏹️ Dừng nói
+              </button>
+
+              <form id="textAskForm" class="quick-input-form">
+                <input
+                  id="textInput"
+                  type="text"
+                  placeholder="Hoặc gõ câu hỏi nhanh tại đây..."
+                  autocomplete="off"
+                />
+                <button type="submit" class="send-btn" title="Gửi câu hỏi">➤</button>
+              </form>
+            </div>
+
+            <div class="suggestion-chips" aria-label="Câu hỏi gợi ý">
+              <button class="chip-btn" type="button" data-question="Tại sao bầu trời lại có màu xanh?">
+                🌤️ Tại sao bầu trời màu xanh?
+              </button>
+              <button class="chip-btn" type="button" data-question="Giải thích định luật vạn vật hấp dẫn thật dễ hiểu!">
+                🍎 Định luật hấp dẫn
+              </button>
+              <button class="chip-btn" type="button" data-question="Cho em một câu đố vui khoa học kèm đáp án nhé!">
+                🧩 Đố vui khoa học
+              </button>
+              <button class="chip-btn" type="button" data-question="Vì sao lá cây có màu xanh lục?">
+                🌿 Vì sao lá cây màu xanh?
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Cột phải: Lịch sử hỏi đáp -->
+        <aside class="history-panel" aria-label="Lịch sử hỏi đáp">
+          <div class="history-header">
+            <div class="history-title-wrap">
+              <h2>💬 Lịch sử hỏi đáp</h2>
+              <span id="historyCount" class="count-badge">0</span>
+            </div>
+            <div class="history-actions">
+              <button id="exportBtn" class="ghost-btn" type="button" title="Tải lịch sử hỏi đáp (.md)">
+                📥 Lưu
+              </button>
+              <button id="clearHistoryBtn" class="ghost-btn danger" type="button" title="Xóa lịch sử">
+                🗑️ Xóa
+              </button>
+            </div>
+          </div>
+
+          <div id="historyList" class="history-list">
+            <div id="emptyHistory" class="empty-history">
+              <div class="empty-icon">✨</div>
+              <h3>Chưa có cuộc trò chuyện nào</h3>
+              <p>
+                Học sinh có thể nhấn nút <strong>Micro</strong> hoặc chọn một câu hỏi gợi ý để bắt đầu khám phá kiến thức cùng AI!
+              </p>
+            </div>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <!-- Modal Cài đặt -->
+    <div id="settingsModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h2 id="settingsTitle">⚙️ Cài đặt Trợ lý Robot</h2>
+          <button id="closeSettingsBtn" class="close-modal-btn" type="button" aria-label="Đóng">✕</button>
+        </div>
+
+        <form id="settingsForm" class="modal-body">
+          <div class="form-group">
+            <label for="botNameInput">Tên nhân vật Robot</label>
+            <input id="botNameInput" type="text" maxlength="30" placeholder="VD: RoboTùng" />
+          </div>
+
+          <div class="form-group">
+            <label for="apiKeyInput">
+              API Key
+              <span id="serverKeyStatus" class="key-status"></span>
+            </label>
+            <input
+              id="apiKeyInput"
+              type="password"
+              placeholder="Để trống để dùng key trong file .env"
+              autocomplete="off"
+            />
+            <small>Nếu nhập ở đây sẽ ưu tiên dùng key này thay cho file .env.</small>
+          </div>
+
+          <div class="form-group">
+            <label for="baseUrlInput">API Base URL (tuỳ chọn)</label>
+            <input
+              id="baseUrlInput"
+              type="text"
+              placeholder="VD: https://router.kynx.space/v1 (để trống nếu dùng Google Gemini gốc)"
+              autocomplete="off"
+            />
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="modelInput">Model AI</label>
+              <input
+                id="modelInput"
+                type="text"
+                list="modelSuggestions"
+                placeholder="VD: kyle-1.9 hoặc gemini-2.5-flash"
+                autocomplete="off"
+              />
+              <datalist id="modelSuggestions">
+                <option value="kyle-1.9"></option>
+                <option value="gemini-2.5-flash"></option>
+                <option value="gemini-2.5-flash-lite"></option>
+              </datalist>
+            </div>
+
+            <div class="form-group">
+              <label for="languageSelect">Ngôn ngữ &amp; Giọng (Accent)</label>
+              <select id="languageSelect">
+                <option value="vi-VN">Tiếng Việt (vi-VN)</option>
+                <option value="en-US">Tiếng Anh - Mỹ (en-US)</option>
+                <option value="en-IN">Tiếng Anh - Ấn Độ (en-IN)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="voiceSelect">
+                Giọng đọc loa (TTS)
+                <button type="button" id="testVoiceBtn" class="mini-btn">🔊 Nghe thử</button>
+              </label>
+              <select id="voiceSelect">
+                <option value="">Tự động chọn giọng phù hợp</option>
+              </select>
+              <small id="voiceStatusNote"></small>
+            </div>
+
+            <div class="form-group">
+              <label for="speechRateRange">
+                Tốc độ đọc: <strong id="speechRateVal">1.05x</strong>
+              </label>
+              <input id="speechRateRange" type="range" min="0.8" max="1.4" step="0.05" value="1.05" />
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" id="cancelSettingsBtn" class="ghost-btn">Hủy</button>
+            <button type="submit" class="primary-btn">Lưu cài đặt</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal Nhận diện & Thêm khuôn mặt -->
+    <div id="faceModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="faceModalTitle">
+      <div class="modal-card modal-wide">
+        <div class="modal-header">
+          <h2 id="faceModalTitle">👤 Nhận diện khuôn mặt &amp; AI Cá nhân</h2>
+          <button id="closeFaceModalBtn" class="close-modal-btn" type="button" aria-label="Đóng">✕</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="tab-bar">
+            <button id="tabScanBtn" class="tab-btn active" type="button">📷 Quét nhận diện</button>
+            <button id="tabRegisterBtn" class="tab-btn" type="button">➕ Thêm khuôn mặt &amp; tên</button>
+          </div>
+
+          <div id="cameraStageWrap" class="camera-stage">
+            <video id="faceVideo" autoplay muted playsinline></video>
+            <canvas id="faceOverlayCanvas"></canvas>
+            <div id="faceCamStatus" class="cam-status-pill">Đang khởi động camera...</div>
+          </div>
+
+          <!-- Thanh tiến trình Face ID nhiều bước -->
+          <div id="faceIdProgressWrap" class="faceid-progress-box hidden">
+            <div class="faceid-progress-top">
+              <span id="faceIdPromptText">Bước 1/4: Nhìn thẳng vào camera</span>
+              <strong id="faceIdPercentText">0%</strong>
+            </div>
+            <div class="faceid-progress-track">
+              <div id="faceIdProgressFill" class="faceid-progress-fill" style="width: 0%"></div>
+            </div>
+          </div>
+
+          <!-- Màn hình kết quả thành công (không tự tắt tab để học sinh quan sát) -->
+          <div id="faceResultCard" class="face-result-card hidden">
+            <div class="face-result-avatar-wrap">
+              <img id="faceResultAvatar" src="" alt="" />
+              <span class="face-result-check">✓</span>
+            </div>
+            <div id="faceResultBadge" class="face-result-badge">🎉 NHẬN DIỆN THÀNH CÔNG!</div>
+            <h3 id="faceResultName" class="face-result-name">Minh Anh</h3>
+            <p id="faceResultDesc" class="face-result-desc">
+              AI đã chuyển sang chế độ trợ lý cá nhân của bạn.
+            </p>
+            <div class="face-result-actions">
+              <button id="faceStartChatBtn" type="button" class="primary-btn">
+                💬 Bắt đầu trò chuyện ngay
+              </button>
+              <button id="faceRescanBtn" type="button" class="ghost-btn">
+                🔄 Quét lại / Bạn khác
+              </button>
+            </div>
+          </div>
+
+          <!-- Form đăng ký khuôn mặt mới -->
+          <form id="faceRegisterForm" class="register-box hidden">
+            <div class="form-row">
+              <div class="form-group">
+                <label for="personNameInput">Tên người dùng / Học sinh *</label>
+                <input
+                  id="personNameInput"
+                  type="text"
+                  maxlength="40"
+                  placeholder="VD: Minh Anh, Thầy Tùng..."
+                  required
+                />
+              </div>
+              <div class="form-group">
+                <label for="personNoteInput">Sở thích / Phong cách AI cá nhân</label>
+                <input
+                  id="personNoteInput"
+                  type="text"
+                  maxlength="200"
+                  placeholder="VD: Thích vũ trụ, thích giải thích hài hước..."
+                />
+              </div>
+            </div>
+            <button id="captureSaveFaceBtn" type="submit" class="primary-btn full-btn">
+              🛡️ Bắt đầu quét Face ID (Xoay trái • phải • ngẩng đầu)
+            </button>
+          </form>
+
+          <!-- Danh sách khuôn mặt đã lưu -->
+          <div class="saved-faces-section">
+            <div class="saved-faces-head">
+              <span>Danh sách khuôn mặt đã lưu (<span id="savedFacesCount">0</span>)</span>
+              <small>Bấm vào tên để chuyển nhanh hoặc dùng camera quét</small>
+            </div>
+            <div id="savedFacesList" class="saved-faces-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="/vendor/face-api/face-api.js"></script>
+    <script src="robot.js"></script>
+    <script src="speech.js"></script>
+    <script src="face.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
