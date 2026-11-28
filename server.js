@@ -1,6 +1,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { execFile, execFileSync } = require('child_process');
 
 /**
  * Đọc file .env nếu tồn tại mà không cần thư viện ngoài.
@@ -39,6 +40,94 @@ function getServerEnv(key) {
 const PORT = Number(process.env.PORT || initialEnv.PORT) || 3000;
 const DEFAULT_MODEL = process.env.GEMINI_MODEL || initialEnv.GEMINI_MODEL || 'gemini-2.5-flash';
 const PUBLIC_DIR = path.join(__dirname, 'public');
+const DATA_DIR = path.join(__dirname, 'data');
+const PROFILES_FILE = path.join(DATA_DIR, 'profiles.json');
+const HISTORIES_DIR = path.join(DATA_DIR, 'histories');
+
+function detectEspeakNg() {
+  try {
+    execFileSync('espeak-ng', ['--version'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const HAS_LOCAL_TTS = detectEspeakNg();
+
+function synthesizeEspeakWav(text, lang, rate) {
+  const cleanText = String(text || '').trim().slice(0, 600);
+  const normLang = String(lang || 'vi-VN').toLowerCase();
+  const voiceCode =
+    normLang === 'en-in' ? 'en-in' : normLang.startsWith('en') ? 'en-us' : 'vi';
+  const wpm = Math.max(110, Math.min(240, Math.round(160 * (Number(rate) || 1.05))));
+
+  const runWithVoice = (voice) =>
+    new Promise((resolve, reject) => {
+      execFile(
+        'espeak-ng',
+        ['--stdout', '-v', voice, '-s', String(wpm), cleanText],
+        { encoding: 'buffer', maxBuffer: 4 * 1024 * 1024 },
+        (err, stdout) => {
+          if (err) return reject(err);
+          resolve(stdout);
+        }
+      );
+    });
+
+  return runWithVoice(voiceCode).catch((err) => {
+    if (voiceCode === 'en-in') {
+      return runWithVoice('en');
+    }
+    throw err;
+  });
+}
+
+function ensureDataDirs() {
+  fs.mkdirSync(HISTORIES_DIR, { recursive: true });
+}
+
+function readProfiles() {
+  ensureDataDirs();
+  if (!fs.existsSync(PROFILES_FILE)) return [];
+  try {
+    const parsed = JSON.parse(fs.readFileSync(PROFILES_FILE, 'utf8'));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeProfiles(profiles) {
+  ensureDataDirs();
+  fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), 'utf8');
+}
+
+function sanitizeProfileId(rawId) {
+  return String(rawId || 'guest').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64) || 'guest';
+}
+
+function getHistoryFile(profileId) {
+  ensureDataDirs();
+  return path.join(HISTORIES_DIR, `${sanitizeProfileId(profileId)}.json`);
+}
+
+function readProfileHistory(profileId) {
+  const file = getHistoryFile(profileId);
+  if (!fs.existsSync(file)) return [];
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeProfileHistory(profileId, history) {
+  const file = getHistoryFile(profileId);
+  const safeList = Array.isArray(history) ? history.slice(-60) : [];
+  fs.writeFileSync(file, JSON.stringify(safeList, null, 2), 'utf8');
+}
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -72,7 +161,14 @@ const GRADE_PROMPTS = {
     'Đối tượng là học sinh THPT: giải thích súc tích, chính xác kiến thức chuyên môn, khuyến khích tư duy phản biện.',
 };
 
-function buildSystemInstruction({ persona, gradeLevel, botName, language, hasAudio }) {
+function buildSystemInstruction({
+  persona,
+  gradeLevel,
+  botName,
+  language,
+  hasAudio,
+  activeProfile,
+}) {
   const personaText = PERSONA_PROMPTS[persona] || PERSONA_PROMPTS.general;
   const gradeText = GRADE_PROMPTS[gradeLevel] || GRADE_PROMPTS.middle;
   const safeName = (botName || 'RoboAI').slice(0, 40);
@@ -91,6 +187,18 @@ function buildSystemInstruction({ persona, gradeLevel, botName, language, hasAud
       ? 'Trả lời hoàn toàn bằng tiếng Anh tự nhiên, rõ ràng, phù hợp học sinh để đọc trực tiếp bằng giọng đọc tiếng Anh (chỉ chèn tiếng Việt nếu học sinh hỏi bằng tiếng Việt hoặc yêu cầu dịch).'
       : 'Ưu tiên trả lời bằng tiếng Việt chuẩn, tự nhiên (trừ khi học sinh yêu cầu ngôn ngữ khác hoặc đang ở chế độ Tiếng Anh).',
   ];
+
+  if (activeProfile && activeProfile.name) {
+    const personName = String(activeProfile.name).slice(0, 60);
+    const note = String(activeProfile.personaNote || '').trim().slice(0, 300);
+    rules.push(
+      `CHẾ ĐỘ AI CÁ NHÂN: Bạn hiện đang là trợ lý AI cá nhân riêng của **${personName}** (đã nhận diện qua khuôn mặt).`,
+      `- Hãy gọi tên **${personName}** một cách thân thiện, tự nhiên trong cuộc trò chuyện và nhớ ngữ cảnh hỏi đáp riêng của ${personName}.`
+    );
+    if (note) {
+      rules.push(`- Thông tin / sở thích / phong cách riêng của ${personName}: ${note}`);
+    }
+  }
 
   if (hasAudio) {
     rules.push(
@@ -421,6 +529,7 @@ async function handleChatStream(req, res) {
     botName: body.botName,
     language: body.language,
     hasAudio: Boolean(body.audioData),
+    activeProfile: body.activeProfile,
   });
 
   res.writeHead(200, {
@@ -486,7 +595,7 @@ function serveStatic(req, res, pathname) {
   });
 }
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const { pathname } = urlObj;
 
@@ -499,7 +608,119 @@ const server = http.createServer((req, res) => {
       hasServerKey,
       defaultModel,
       defaultBaseUrl,
+      hasLocalTts: HAS_LOCAL_TTS,
     });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/api/tts') {
+    if (!HAS_LOCAL_TTS) {
+      sendJson(res, 501, { error: 'Server chưa cài espeak-ng.' });
+      return;
+    }
+    const text = urlObj.searchParams.get('text') || '';
+    const lang = urlObj.searchParams.get('lang') || 'vi-VN';
+    const rate = urlObj.searchParams.get('rate') || '1.05';
+    if (!text.trim()) {
+      sendJson(res, 400, { error: 'Thiếu nội dung text.' });
+      return;
+    }
+    try {
+      const wav = await synthesizeEspeakWav(text, lang, rate);
+      res.writeHead(200, {
+        'Content-Type': 'audio/wav',
+        'Content-Length': wav.length,
+        'Cache-Control': 'no-store',
+      });
+      res.end(wav);
+    } catch (err) {
+      sendJson(res, 500, { error: err.message || 'Lỗi tạo âm thanh TTS.' });
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/api/profiles') {
+    sendJson(res, 200, { profiles: readProfiles() });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/api/profiles') {
+    try {
+      const body = await readJsonBody(req);
+      const name = String(body.name || '').trim().slice(0, 60);
+      const descriptors = Array.isArray(body.descriptors) ? body.descriptors : [];
+      if (!name) {
+        sendJson(res, 400, { error: 'Vui lòng nhập tên người dùng.' });
+        return;
+      }
+      if (descriptors.length === 0 || !Array.isArray(descriptors[0]) || descriptors[0].length !== 128) {
+        sendJson(res, 400, { error: 'Chưa quét được đặc trưng khuôn mặt hợp lệ.' });
+        return;
+      }
+
+      const profiles = readProfiles();
+      const id = body.id ? sanitizeProfileId(body.id) : `user_${Date.now()}`;
+      const profile = {
+        id,
+        name,
+        personaNote: String(body.personaNote || '').trim().slice(0, 300),
+        preferredPersona: String(body.preferredPersona || 'general'),
+        preferredGrade: String(body.preferredGrade || 'middle'),
+        preferredLanguage: String(body.preferredLanguage || 'vi-VN'),
+        avatarDataUrl: typeof body.avatarDataUrl === 'string' ? body.avatarDataUrl.slice(0, 200000) : '',
+        descriptors: descriptors.slice(0, 5),
+        createdAt: Date.now(),
+      };
+
+      const existingIdx = profiles.findIndex((p) => p.id === id);
+      if (existingIdx >= 0) {
+        profiles[existingIdx] = profile;
+      } else {
+        profiles.push(profile);
+      }
+      writeProfiles(profiles);
+      sendJson(res, 200, { profile });
+    } catch (err) {
+      sendJson(res, 400, { error: err.message || 'Không thể lưu hồ sơ khuôn mặt.' });
+    }
+    return;
+  }
+
+  if (req.method === 'DELETE' && pathname.startsWith('/api/profiles/')) {
+    const id = sanitizeProfileId(pathname.slice('/api/profiles/'.length));
+    const profiles = readProfiles();
+    const next = profiles.filter((p) => p.id !== id);
+    writeProfiles(next);
+    const histFile = getHistoryFile(id);
+    if (fs.existsSync(histFile)) {
+      fs.unlinkSync(histFile);
+    }
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/api/history') {
+    const profileId = urlObj.searchParams.get('profileId') || 'guest';
+    sendJson(res, 200, { history: readProfileHistory(profileId) });
+    return;
+  }
+
+  if (req.method === 'PUT' && pathname === '/api/history') {
+    try {
+      const body = await readJsonBody(req);
+      const profileId = body.profileId || 'guest';
+      writeProfileHistory(profileId, body.history || []);
+      sendJson(res, 200, { ok: true });
+    } catch (err) {
+      sendJson(res, 400, { error: err.message });
+    }
+    return;
+  }
+
+  if (req.method === 'DELETE' && pathname === '/api/history') {
+    const profileId = urlObj.searchParams.get('profileId') || 'guest';
+    writeProfileHistory(profileId, []);
+    sendJson(res, 200, { ok: true });
     return;
   }
 

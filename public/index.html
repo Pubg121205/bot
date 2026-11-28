@@ -54,6 +54,16 @@
             </select>
           </label>
 
+          <button id="faceScanBtn" class="icon-btn face-btn" type="button" title="Quét khuôn mặt để nhận diện & chuyển sang AI cá nhân">
+            <span>📷</span>
+            <span class="btn-label">Quét mặt</span>
+          </button>
+
+          <button id="faceAddBtn" class="icon-btn face-btn" type="button" title="Thêm khuôn mặt và tên mới">
+            <span>➕</span>
+            <span class="btn-label">Thêm khuôn mặt</span>
+          </button>
+
           <button id="ttsToggleBtn" class="icon-btn active" type="button" title="Bật/tắt giọng đọc AI">
             <span id="ttsIcon">🔊</span>
             <span class="btn-label">Loa: Bật</span>
@@ -84,8 +94,17 @@
                 <span class="status-dot"></span>
                 <span id="statusText">Sẵn sàng trò chuyện cùng các em!</span>
               </div>
-              <div id="latencyBadge" class="latency-pill hidden" title="Thời gian phản hồi đầu tiên từ Gemini">
-                ⚡ <span id="latencyValue">0</span> ms
+
+              <div class="stage-right-meta">
+                <div id="activePersonBanner" class="person-banner hidden">
+                  <img id="activePersonAvatar" class="person-avatar" src="" alt="" />
+                  <span id="activePersonLabel">AI cá nhân</span>
+                  <button id="exitPersonBtn" class="person-exit-btn" type="button" title="Quay về chế độ chung">✕</button>
+                </div>
+
+                <div id="latencyBadge" class="latency-pill hidden" title="Thời gian phản hồi đầu tiên từ AI">
+                  ⚡ <span id="latencyValue">0</span> ms
+                </div>
               </div>
             </div>
 
@@ -434,8 +453,102 @@
       </div>
     </div>
 
+    <!-- Modal Nhận diện & Thêm khuôn mặt -->
+    <div id="faceModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="faceModalTitle">
+      <div class="modal-card modal-wide">
+        <div class="modal-header">
+          <h2 id="faceModalTitle">👤 Nhận diện khuôn mặt &amp; AI Cá nhân</h2>
+          <button id="closeFaceModalBtn" class="close-modal-btn" type="button" aria-label="Đóng">✕</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="tab-bar">
+            <button id="tabScanBtn" class="tab-btn active" type="button">📷 Quét nhận diện</button>
+            <button id="tabRegisterBtn" class="tab-btn" type="button">➕ Thêm khuôn mặt &amp; tên</button>
+          </div>
+
+          <div id="cameraStageWrap" class="camera-stage">
+            <video id="faceVideo" autoplay muted playsinline></video>
+            <canvas id="faceOverlayCanvas"></canvas>
+            <div id="faceCamStatus" class="cam-status-pill">Đang khởi động camera...</div>
+          </div>
+
+          <!-- Thanh tiến trình Face ID nhiều bước -->
+          <div id="faceIdProgressWrap" class="faceid-progress-box hidden">
+            <div class="faceid-progress-top">
+              <span id="faceIdPromptText">Bước 1/4: Nhìn thẳng vào camera</span>
+              <strong id="faceIdPercentText">0%</strong>
+            </div>
+            <div class="faceid-progress-track">
+              <div id="faceIdProgressFill" class="faceid-progress-fill" style="width: 0%"></div>
+            </div>
+          </div>
+
+          <!-- Màn hình kết quả thành công (không tự tắt tab để học sinh quan sát) -->
+          <div id="faceResultCard" class="face-result-card hidden">
+            <div class="face-result-avatar-wrap">
+              <img id="faceResultAvatar" src="" alt="" />
+              <span class="face-result-check">✓</span>
+            </div>
+            <div id="faceResultBadge" class="face-result-badge">🎉 NHẬN DIỆN THÀNH CÔNG!</div>
+            <h3 id="faceResultName" class="face-result-name">Minh Anh</h3>
+            <p id="faceResultDesc" class="face-result-desc">
+              AI đã chuyển sang chế độ trợ lý cá nhân của bạn.
+            </p>
+            <div class="face-result-actions">
+              <button id="faceStartChatBtn" type="button" class="primary-btn">
+                💬 Bắt đầu trò chuyện ngay
+              </button>
+              <button id="faceRescanBtn" type="button" class="ghost-btn">
+                🔄 Quét lại / Bạn khác
+              </button>
+            </div>
+          </div>
+
+          <!-- Form đăng ký khuôn mặt mới -->
+          <form id="faceRegisterForm" class="register-box hidden">
+            <div class="form-row">
+              <div class="form-group">
+                <label for="personNameInput">Tên người dùng / Học sinh *</label>
+                <input
+                  id="personNameInput"
+                  type="text"
+                  maxlength="40"
+                  placeholder="VD: Minh Anh, Thầy Tùng..."
+                  required
+                />
+              </div>
+              <div class="form-group">
+                <label for="personNoteInput">Sở thích / Phong cách AI cá nhân</label>
+                <input
+                  id="personNoteInput"
+                  type="text"
+                  maxlength="200"
+                  placeholder="VD: Thích vũ trụ, thích giải thích hài hước..."
+                />
+              </div>
+            </div>
+            <button id="captureSaveFaceBtn" type="submit" class="primary-btn full-btn">
+              🛡️ Bắt đầu quét Face ID (Xoay trái • phải • ngẩng đầu)
+            </button>
+          </form>
+
+          <!-- Danh sách khuôn mặt đã lưu -->
+          <div class="saved-faces-section">
+            <div class="saved-faces-head">
+              <span>Danh sách khuôn mặt đã lưu (<span id="savedFacesCount">0</span>)</span>
+              <small>Bấm vào tên để chuyển nhanh hoặc dùng camera quét</small>
+            </div>
+            <div id="savedFacesList" class="saved-faces-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="/vendor/face-api/face-api.js"></script>
     <script src="robot.js"></script>
     <script src="speech.js"></script>
+    <script src="face.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

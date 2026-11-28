@@ -1,16 +1,20 @@
 (() => {
   const STORAGE_SETTINGS_KEY = 'roboai_settings_v1';
   const STORAGE_HISTORY_KEY = 'roboai_history_v1';
+  const STORAGE_ACTIVE_PROFILE_KEY = 'roboai_active_profile_v1';
 
   const robot = new window.RobotStage();
   const speech = new window.SpeechManager();
   const speaker = new window.SpeechSpeaker();
+  const faceMgr = new window.FaceRecognitionManager();
 
   // DOM Elements
   const appTitleEl = document.getElementById('appTitle');
   const personaSelect = document.getElementById('personaSelect');
   const gradeSelect = document.getElementById('gradeSelect');
   const topbarLangSelect = document.getElementById('topbarLangSelect');
+  const faceScanBtn = document.getElementById('faceScanBtn');
+  const faceAddBtn = document.getElementById('faceAddBtn');
   const ttsToggleBtn = document.getElementById('ttsToggleBtn');
   const handsFreeBtn = document.getElementById('handsFreeBtn');
   const fullscreenBtn = document.getElementById('fullscreenBtn');
@@ -18,6 +22,10 @@
 
   const latencyBadge = document.getElementById('latencyBadge');
   const latencyValue = document.getElementById('latencyValue');
+  const activePersonBanner = document.getElementById('activePersonBanner');
+  const activePersonAvatar = document.getElementById('activePersonAvatar');
+  const activePersonLabel = document.getElementById('activePersonLabel');
+  const exitPersonBtn = document.getElementById('exitPersonBtn');
   const captionTag = document.getElementById('captionTag');
   const liveCaption = document.getElementById('liveCaption');
 
@@ -51,9 +59,39 @@
   const speechRateRange = document.getElementById('speechRateRange');
   const speechRateVal = document.getElementById('speechRateVal');
 
+  // Face Modal Elements
+  const faceModal = document.getElementById('faceModal');
+  const closeFaceModalBtn = document.getElementById('closeFaceModalBtn');
+  const tabScanBtn = document.getElementById('tabScanBtn');
+  const tabRegisterBtn = document.getElementById('tabRegisterBtn');
+  const cameraStageWrap = document.getElementById('cameraStageWrap');
+  const faceVideo = document.getElementById('faceVideo');
+  const faceOverlayCanvas = document.getElementById('faceOverlayCanvas');
+  const faceCamStatus = document.getElementById('faceCamStatus');
+  const faceIdProgressWrap = document.getElementById('faceIdProgressWrap');
+  const faceIdPromptText = document.getElementById('faceIdPromptText');
+  const faceIdPercentText = document.getElementById('faceIdPercentText');
+  const faceIdProgressFill = document.getElementById('faceIdProgressFill');
+  const faceResultCard = document.getElementById('faceResultCard');
+  const faceResultAvatar = document.getElementById('faceResultAvatar');
+  const faceResultBadge = document.getElementById('faceResultBadge');
+  const faceResultName = document.getElementById('faceResultName');
+  const faceResultDesc = document.getElementById('faceResultDesc');
+  const faceStartChatBtn = document.getElementById('faceStartChatBtn');
+  const faceRescanBtn = document.getElementById('faceRescanBtn');
+  const faceRegisterForm = document.getElementById('faceRegisterForm');
+  const personNameInput = document.getElementById('personNameInput');
+  const personNoteInput = document.getElementById('personNoteInput');
+  const captureSaveFaceBtn = document.getElementById('captureSaveFaceBtn');
+  const savedFacesCount = document.getElementById('savedFacesCount');
+  const savedFacesList = document.getElementById('savedFacesList');
+
   let serverHasKey = false;
   let isBusy = false;
   let activeAbortController = null;
+  let profiles = [];
+  let activeProfile = null;
+  let currentFaceTab = 'scan';
 
   let settings = loadSettings();
   let history = loadHistory();
@@ -93,8 +131,34 @@
     }
   }
 
+  function getActiveProfileId() {
+    return activeProfile ? activeProfile.id : 'guest';
+  }
+
   function saveHistory() {
-    localStorage.setItem(STORAGE_HISTORY_KEY, JSON.stringify(history.slice(-60)));
+    const trimmed = history.slice(-60);
+    if (!activeProfile) {
+      localStorage.setItem(STORAGE_HISTORY_KEY, JSON.stringify(trimmed));
+    }
+    fetch('/api/history', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profileId: getActiveProfileId(), history: trimmed }),
+    }).catch(() => {});
+  }
+
+  async function loadServerHistory(profileId) {
+    try {
+      const res = await fetch(`/api/history?profileId=${encodeURIComponent(profileId || 'guest')}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data.history)) {
+        history = data.history;
+        renderHistory();
+      }
+    } catch {
+      // giữ history hiện tại nếu offline
+    }
   }
 
   function escapeHtml(str) {
@@ -180,11 +244,23 @@
   }
 
   function syncUIWithSettings() {
-    appTitleEl.textContent = settings.botName || 'RoboAI Trợ Giảng';
+    const personalName = activeProfile ? `AI của ${activeProfile.name}` : null;
+    appTitleEl.textContent = personalName || settings.botName || 'RoboAI Trợ Giảng';
     personaSelect.value = settings.persona;
     gradeSelect.value = settings.gradeLevel;
     if (topbarLangSelect) {
       topbarLangSelect.value = settings.language || 'vi-VN';
+    }
+
+    if (activeProfile) {
+      activePersonBanner.classList.remove('hidden');
+      activePersonAvatar.src = activeProfile.avatarDataUrl || '';
+      activePersonAvatar.classList.toggle('hidden', !activeProfile.avatarDataUrl);
+      activePersonLabel.textContent = `AI cá nhân: ${activeProfile.name}`;
+      faceScanBtn.classList.add('active');
+    } else {
+      activePersonBanner.classList.add('hidden');
+      faceScanBtn.classList.remove('active');
     }
 
     speaker.setEnabled(settings.ttsEnabled);
@@ -262,7 +338,11 @@
     wrapper.className = `chat-item ${item.role}`;
     wrapper.dataset.id = item.id;
 
-    const who = item.role === 'user' ? '🎒 Học sinh' : `🤖 ${settings.botName || 'RoboAI'}`;
+    const studentLabel = activeProfile ? `👤 ${activeProfile.name}` : '🎒 Học sinh';
+    const aiLabel = activeProfile
+      ? `🤖 AI của ${activeProfile.name}`
+      : `🤖 ${settings.botName || 'RoboAI'}`;
+    const who = item.role === 'user' ? studentLabel : aiLabel;
     const metaHtml = `
       <div class="chat-meta">
         <span>${escapeHtml(who)}</span>
@@ -437,6 +517,13 @@
           model: settings.model,
           baseUrl: settings.baseUrl,
           apiKey: settings.apiKey,
+          activeProfile: activeProfile
+            ? {
+                id: activeProfile.id,
+                name: activeProfile.name,
+                personaNote: activeProfile.personaNote || '',
+              }
+            : null,
         }),
       });
 
@@ -705,11 +792,281 @@
     setCaption('Gợi ý', '', 'Đã làm mới lịch sử. Các em đặt câu hỏi tiếp theo nhé!');
   });
 
+  // --- Face Recognition & Personal AI ---
+  async function loadProfilesFromServer() {
+    try {
+      const res = await fetch('/api/profiles');
+      if (!res.ok) return;
+      const data = await res.json();
+      profiles = Array.isArray(data.profiles) ? data.profiles : [];
+      faceMgr.setProfiles(profiles);
+      renderSavedFacesList();
+    } catch {
+      // ignore
+    }
+  }
+
+  function renderSavedFacesList() {
+    if (!savedFacesList) return;
+    savedFacesCount.textContent = String(profiles.length);
+    savedFacesList.innerHTML = '';
+
+    if (profiles.length === 0) {
+      savedFacesList.innerHTML =
+        '<div style="font-size:0.84rem;color:#64748b;padding:8px 4px;">Chưa có khuôn mặt nào được lưu. Hãy chọn tab <strong>Thêm khuôn mặt &amp; tên</strong> để tạo AI cá nhân đầu tiên!</div>';
+      return;
+    }
+
+    for (const prof of profiles) {
+      const row = document.createElement('div');
+      row.className = `saved-face-item ${activeProfile?.id === prof.id ? 'active-profile' : ''}`;
+
+      const info = document.createElement('div');
+      info.className = 'saved-face-info';
+
+      const img = document.createElement('img');
+      img.src = prof.avatarDataUrl || '';
+      img.alt = prof.name;
+      if (!prof.avatarDataUrl) img.style.display = 'none';
+
+      const textWrap = document.createElement('div');
+      textWrap.className = 'saved-face-text';
+      textWrap.innerHTML = `
+        <div class="saved-face-name">${escapeHtml(prof.name)}</div>
+        <div class="saved-face-note">${escapeHtml(prof.personaNote || 'Trợ lý AI cá nhân')}</div>
+      `;
+
+      info.appendChild(img);
+      info.appendChild(textWrap);
+
+      const actions = document.createElement('div');
+      actions.className = 'saved-face-actions';
+
+      const selectBtn = document.createElement('button');
+      selectBtn.type = 'button';
+      selectBtn.className = 'mini-btn';
+      selectBtn.textContent = activeProfile?.id === prof.id ? '✓ Đang dùng' : 'Chuyển AI';
+      selectBtn.addEventListener('click', async () => {
+        await activatePersonalProfile(prof, true);
+        closeFaceModal();
+      });
+
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'mini-btn';
+      delBtn.textContent = '🗑️';
+      delBtn.title = 'Xóa khuôn mặt này';
+      delBtn.addEventListener('click', async () => {
+        await fetch(`/api/profiles/${encodeURIComponent(prof.id)}`, { method: 'DELETE' });
+        if (activeProfile?.id === prof.id) {
+          await deactivatePersonalProfile();
+        }
+        await loadProfilesFromServer();
+      });
+
+      actions.appendChild(selectBtn);
+      actions.appendChild(delBtn);
+
+      row.appendChild(info);
+      row.appendChild(actions);
+      savedFacesList.appendChild(row);
+    }
+  }
+
+  async function activatePersonalProfile(profile, speakGreeting = true) {
+    activeProfile = profile;
+    localStorage.setItem(STORAGE_ACTIVE_PROFILE_KEY, profile.id);
+    if (profile.preferredPersona) settings.persona = profile.preferredPersona;
+    if (profile.preferredGrade) settings.gradeLevel = profile.preferredGrade;
+    if (profile.preferredLanguage) settings.language = profile.preferredLanguage;
+    saveSettings();
+    syncUIWithSettings();
+    renderSavedFacesList();
+
+    await loadServerHistory(profile.id);
+
+    robot.setState('idle', `Xin chào ${profile.name}! AI cá nhân đã sẵn sàng.`);
+    robot.flashHappy(1800);
+
+    const isEn = (settings.language || '').toLowerCase().startsWith('en');
+    const greetText = isEn
+      ? `Hello ${profile.name}! Welcome back. I am now your personal AI assistant!`
+      : `Xin chào ${profile.name}! Tớ đã nhận diện được bạn và chuyển sang chế độ AI cá nhân riêng của ${profile.name} rồi nhé!`;
+
+    setCaption(`AI của ${profile.name}`, 'ai', escapeHtml(greetText));
+    if (speakGreeting && settings.ttsEnabled) {
+      speaker.speakText(greetText);
+    }
+  }
+
+  async function deactivatePersonalProfile() {
+    activeProfile = null;
+    localStorage.removeItem(STORAGE_ACTIVE_PROFILE_KEY);
+    syncUIWithSettings();
+    renderSavedFacesList();
+    await loadServerHistory('guest');
+    robot.setState('idle', 'Sẵn sàng trò chuyện cùng các em!');
+    setCaption('Gợi ý', '', 'Đã quay về chế độ trợ giảng chung cho cả lớp.');
+  }
+
+  function hideFaceResultCard() {
+    faceResultCard.classList.add('hidden');
+    cameraStageWrap.classList.remove('hidden');
+  }
+
+  function showFaceSuccessCard({ profile, badgeText, descText }) {
+    faceMgr.stopCamera(faceVideo);
+    cameraStageWrap.classList.add('hidden');
+    faceIdProgressWrap.classList.add('hidden');
+    faceRegisterForm.classList.add('hidden');
+
+    faceResultAvatar.src = profile.avatarDataUrl || '';
+    faceResultAvatar.classList.toggle('hidden', !profile.avatarDataUrl);
+    faceResultBadge.textContent = badgeText;
+    faceResultName.textContent = profile.name;
+    faceResultDesc.textContent = descText;
+    faceResultCard.classList.remove('hidden');
+  }
+
+  async function setFaceTab(tab) {
+    currentFaceTab = tab;
+    tabScanBtn.classList.toggle('active', tab === 'scan');
+    tabRegisterBtn.classList.toggle('active', tab === 'register');
+    hideFaceResultCard();
+    faceIdProgressWrap.classList.add('hidden');
+    faceRegisterForm.classList.toggle('hidden', tab !== 'register');
+
+    if (!faceModal.classList.contains('hidden')) {
+      try {
+        await faceMgr.ensureModelsLoaded((msg) => {
+          faceCamStatus.textContent = msg;
+        });
+        await faceMgr.startCamera(faceVideo);
+        faceMgr.setProfiles(profiles);
+        startFaceLoop();
+      } catch (err) {
+        faceCamStatus.textContent = err.message || 'Không thể mở Camera.';
+      }
+    }
+  }
+
+  function startFaceLoop() {
+    faceMgr.startLoop({
+      videoEl: faceVideo,
+      canvasEl: faceOverlayCanvas,
+      mode: currentFaceTab,
+      onStatus: (_hasFace, text) => {
+        faceCamStatus.textContent = text;
+      },
+      onMatch: async (profile, confidence) => {
+        await activatePersonalProfile(profile, true);
+        showFaceSuccessCard({
+          profile,
+          badgeText: `🎉 NHẬN DIỆN THÀNH CÔNG (${confidence}%)`,
+          descText: `Xin chào ${profile.name}! Robot đã chuyển thành trợ lý AI cá nhân riêng của bạn.`,
+        });
+      },
+    });
+  }
+
+  async function openFaceModal(initialTab = 'scan') {
+    faceModal.classList.remove('hidden');
+    renderSavedFacesList();
+    faceCamStatus.textContent = 'Đang khởi động camera & mô hình AI...';
+    await setFaceTab(initialTab);
+  }
+
+  function closeFaceModal() {
+    faceMgr.stopCamera(faceVideo);
+    faceIdProgressWrap.classList.add('hidden');
+    hideFaceResultCard();
+    const ctx = faceOverlayCanvas.getContext('2d');
+    ctx.clearRect(0, 0, faceOverlayCanvas.width, faceOverlayCanvas.height);
+    faceModal.classList.add('hidden');
+  }
+
+  faceScanBtn?.addEventListener('click', () => openFaceModal('scan'));
+  faceAddBtn?.addEventListener('click', () => openFaceModal('register'));
+  exitPersonBtn?.addEventListener('click', deactivatePersonalProfile);
+  closeFaceModalBtn?.addEventListener('click', closeFaceModal);
+  tabScanBtn?.addEventListener('click', () => setFaceTab('scan'));
+  tabRegisterBtn?.addEventListener('click', () => setFaceTab('register'));
+  faceStartChatBtn?.addEventListener('click', closeFaceModal);
+  faceRescanBtn?.addEventListener('click', () => setFaceTab(currentFaceTab));
+
+  faceRegisterForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = personNameInput.value.trim();
+    if (!name) return;
+
+    captureSaveFaceBtn.disabled = true;
+    captureSaveFaceBtn.textContent = '⏳ Đang quét Face ID...';
+    faceIdProgressWrap.classList.remove('hidden');
+    faceIdPromptText.textContent = 'Bước 1/4: 👀 Nhìn thẳng vào giữa vòng tròn';
+    faceIdPercentText.textContent = '0%';
+    faceIdProgressFill.style.width = '0%';
+
+    try {
+      await faceMgr.ensureModelsLoaded();
+      await faceMgr.startCamera(faceVideo);
+      const { descriptors, avatarDataUrl } = await faceMgr.runFaceIdEnrollment({
+        videoEl: faceVideo,
+        canvasEl: faceOverlayCanvas,
+        onStepUpdate: ({ percent, text }) => {
+          faceIdPromptText.textContent = text;
+          faceIdPercentText.textContent = `${percent}%`;
+          faceIdProgressFill.style.width = `${percent}%`;
+          faceCamStatus.textContent = text;
+        },
+      });
+
+      const res = await fetch('/api/profiles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          personaNote: personNoteInput.value.trim(),
+          preferredPersona: settings.persona,
+          preferredGrade: settings.gradeLevel,
+          preferredLanguage: settings.language,
+          avatarDataUrl,
+          descriptors,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Không thể lưu khuôn mặt.');
+      }
+
+      personNameInput.value = '';
+      personNoteInput.value = '';
+      await loadProfilesFromServer();
+      await activatePersonalProfile(data.profile, true);
+      showFaceSuccessCard({
+        profile: data.profile,
+        badgeText: '🛡️ CÀI ĐẶT FACE ID THÀNH CÔNG!',
+        descText: `Đã lưu dữ liệu khuôn mặt của ${data.profile.name}. AI đã sẵn sàng làm trợ lý cá nhân riêng của bạn!`,
+      });
+    } catch (err) {
+      faceIdProgressWrap.classList.add('hidden');
+      faceCamStatus.textContent = err.message || 'Quét khuôn mặt thất bại, hãy thử lại.';
+      startFaceLoop();
+    } finally {
+      captureSaveFaceBtn.disabled = false;
+      captureSaveFaceBtn.textContent = '🛡️ Bắt đầu quét Face ID (Xoay trái • phải • ngẩng đầu)';
+    }
+  });
+
   exportBtn.addEventListener('click', () => {
     if (history.length === 0) return;
-    const lines = [`# Lịch sử hỏi đáp - ${settings.botName}\n`];
+    const lines = [`# Lịch sử hỏi đáp - ${activeProfile ? `AI của ${activeProfile.name}` : settings.botName}\n`];
     for (const item of history) {
-      const label = item.role === 'user' ? 'Học sinh' : settings.botName;
+      const label =
+        item.role === 'user'
+          ? activeProfile?.name || 'Học sinh'
+          : activeProfile
+            ? `AI của ${activeProfile.name}`
+            : settings.botName;
       lines.push(`### ${label} (${formatTime(item.timestamp)})`);
       lines.push(`${item.text}\n`);
     }
@@ -726,6 +1083,10 @@
   window.addEventListener('keydown', (e) => {
     const tag = document.activeElement?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (!faceModal.classList.contains('hidden')) {
+      if (e.key === 'Escape') closeFaceModal();
+      return;
+    }
     if (!settingsModal.classList.contains('hidden')) {
       if (e.key === 'Escape') closeSettingsModal();
       return;
@@ -750,10 +1111,24 @@
     renderHistory();
     populateVoicesDropdown();
 
+    await loadProfilesFromServer();
+    const savedActiveId = localStorage.getItem(STORAGE_ACTIVE_PROFILE_KEY);
+    if (savedActiveId) {
+      const found = profiles.find((p) => p.id === savedActiveId);
+      if (found) {
+        await activatePersonalProfile(found, false);
+      } else {
+        await loadServerHistory('guest');
+      }
+    } else {
+      await loadServerHistory('guest');
+    }
+
     try {
       const res = await fetch('/api/config');
       const cfg = await res.json();
       serverHasKey = Boolean(cfg.hasServerKey);
+      speaker.setServerTtsAvailable(Boolean(cfg.hasLocalTts));
       const savedRaw = JSON.parse(localStorage.getItem(STORAGE_SETTINGS_KEY) || '{}');
       // Nếu trình duyệt lưu model mặc định cũ trước khi cấu hình router, tự đồng bộ theo .env
       if (cfg.defaultBaseUrl && !savedRaw.baseUrl) {

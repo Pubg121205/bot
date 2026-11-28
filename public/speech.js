@@ -196,6 +196,8 @@ class SpeechSpeaker {
     this.language = 'vi-VN';
     this.voiceURI = '';
     this.voices = [];
+    this.hasLocalTts = false;
+    this.currentAudio = null;
 
     this.queue = [];
     this.buffer = '';
@@ -225,6 +227,25 @@ class SpeechSpeaker {
     return this.voices;
   }
 
+  setServerTtsAvailable(available) {
+    this.hasLocalTts = Boolean(available);
+  }
+
+  _canSpeak() {
+    return Boolean(this.synth || this.hasLocalTts);
+  }
+
+  _shouldUseServerAudio() {
+    if (!this.hasLocalTts) return false;
+    if (!this.synth || this.voices.length === 0) return true;
+    // Trên Linux/Raspberry Pi, voice mặc định là espeak qua speech-dispatcher thường lỗi Bluetooth;
+    // ưu tiên phát WAV qua thẻ <audio> đi thẳng PipeWire/PulseAudio tới loa Bluetooth.
+    const hasHighQualityBrowserVoice = this.voices.some((v) =>
+      /natural|online|neural|google|microsoft/i.test(v.name || '')
+    );
+    return !this.voiceURI && !hasHighQualityBrowserVoice;
+  }
+
   setEnabled(enabled) {
     this.enabled = Boolean(enabled);
     if (!this.enabled) {
@@ -245,7 +266,7 @@ class SpeechSpeaker {
   }
 
   pushDelta(deltaText) {
-    if (!this.enabled || !this.synth) return;
+    if (!this.enabled || !this._canSpeak()) return;
     this.buffer += deltaText;
 
     // Tách câu ngay khi gặp dấu kết thúc câu để đọc nối tiếp tốc độ cao
@@ -264,7 +285,7 @@ class SpeechSpeaker {
     this.streamEnded = true;
     const leftover = this.buffer.trim();
     this.buffer = '';
-    if (this.enabled && this.synth && leftover) {
+    if (this.enabled && this._canSpeak() && leftover) {
       this._enqueue(leftover);
     } else if (!this.isSpeaking && this.queue.length === 0) {
       this.onFinishSpeaking?.();
@@ -272,7 +293,7 @@ class SpeechSpeaker {
   }
 
   speakText(fullText) {
-    if (!this.enabled || !this.synth || !fullText) return;
+    if (!this.enabled || !this._canSpeak() || !fullText) return;
     this.beginStream();
     this.pushDelta(fullText);
     this.endStream();
@@ -284,6 +305,15 @@ class SpeechSpeaker {
     this.streamEnded = true;
     this.isSpeaking = false;
     this._stopPulseTimer();
+    if (this.currentAudio) {
+      try {
+        this.currentAudio.pause();
+        this.currentAudio.src = '';
+      } catch {
+        // ignore
+      }
+      this.currentAudio = null;
+    }
     if (this.synth) {
       try {
         this.synth.cancel();
@@ -365,7 +395,7 @@ class SpeechSpeaker {
   }
 
   _playNext() {
-    if (!this.enabled || !this.synth) {
+    if (!this.enabled || !this._canSpeak()) {
       this.queue = [];
       this.isSpeaking = false;
       return;
@@ -387,6 +417,33 @@ class SpeechSpeaker {
     }
 
     const text = this.queue.shift();
+
+    if (this._shouldUseServerAudio()) {
+      const url = `/api/tts?text=${encodeURIComponent(text)}&lang=${encodeURIComponent(
+        this.language
+      )}&rate=${encodeURIComponent(String(this.rate))}`;
+      const audio = new Audio(url);
+      this.currentAudio = audio;
+      audio.onended = () => {
+        if (this.currentAudio === audio) this.currentAudio = null;
+        this._playNext();
+      };
+      audio.onerror = () => {
+        if (this.currentAudio === audio) this.currentAudio = null;
+        this._playNext();
+      };
+      audio.play().catch(() => {
+        if (this.currentAudio === audio) this.currentAudio = null;
+        this._playNext();
+      });
+      return;
+    }
+
+    if (!this.synth) {
+      this._playNext();
+      return;
+    }
+
     const utterance = new SpeechSynthesisUtterance(text);
     const voice = this._pickVoice();
     if (voice) {
