@@ -287,6 +287,11 @@
     if (!voiceStatusNote) return;
     const voices = speaker.getVoices();
     const recVoice = speaker.getRecommendedVoice(targetLang);
+    if (speaker.hasLocalTts && (!voices.length || speaker._shouldUseServerAudio())) {
+      voiceStatusNote.textContent =
+        '✓ Đang dùng giọng Server Raspberry Pi (espeak-ng) phát thẳng qua loa Bluetooth!';
+      return;
+    }
     if (!voices.length) {
       voiceStatusNote.textContent = 'Trình duyệt chưa nạp danh sách giọng đọc.';
       return;
@@ -312,7 +317,9 @@
     const activePrefix = (langStr || 'vi-VN').split('-')[0].toLowerCase();
     const activeExact = (langStr || 'vi-VN').toLowerCase();
 
-    voiceSelect.innerHTML = '<option value="">Tự động chọn giọng phù hợp</option>';
+    voiceSelect.innerHTML = speaker.hasLocalTts
+      ? '<option value="">🤖 Tự động (Raspberry Pi espeak-ng -> Bluetooth)</option>'
+      : '<option value="">Tự động chọn giọng phù hợp</option>';
     const sorted = [...voices].sort((a, b) => {
       const aExact = a.lang.toLowerCase() === activeExact ? 0 : 1;
       const bExact = b.lang.toLowerCase() === activeExact ? 0 : 1;
@@ -1129,6 +1136,7 @@
       const cfg = await res.json();
       serverHasKey = Boolean(cfg.hasServerKey);
       speaker.setServerTtsAvailable(Boolean(cfg.hasLocalTts));
+      populateVoicesDropdown();
       const savedRaw = JSON.parse(localStorage.getItem(STORAGE_SETTINGS_KEY) || '{}');
       // Nếu trình duyệt lưu model mặc định cũ trước khi cấu hình router, tự đồng bộ theo .env
       if (cfg.defaultBaseUrl && !savedRaw.baseUrl) {
